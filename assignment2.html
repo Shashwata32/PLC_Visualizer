@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alarm Annunciator Ladder Logic</title>
+    <style>
+        :root {
+            --rail-color: #333;
+            --wire-off: #777;
+            --wire-on: #00cc00; /* Green for energized */
+            --bg-color: #f4f4f4;
+            --component-bg: #fff;
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg-color); padding: 20px; }
+        
+        /* Dashboard for Simulation Inputs */
+        .dashboard {
+            background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+        }
+        .control-group { border-right: 1px solid #ddd; padding-right: 20px; }
+        .control-group:last-child { border: none; }
+        button { cursor: pointer; padding: 8px 16px; border: 1px solid #ccc; background: #e0e0e0; border-radius: 4px; font-weight: bold;}
+        button.active { background: #4CAF50; color: white; border-color: #2E7D32; }
+        button:active { transform: translateY(1px); }
+        .status-display { font-family: monospace; font-size: 1.2em; color: #333; }
+
+        /* Ladder Diagram Styles */
+        .ladder-container {
+            background: #fff; border: 1px solid #ccc; padding: 20px 40px; position: relative;
+            min-width: 800px; overflow-x: auto;
+        }
+        .power-rail {
+            position: absolute; top: 0; bottom: 0; width: 4px; background: var(--rail-color);
+        }
+        .rail-left { left: 10px; }
+        .rail-right { right: 10px; }
+
+        .rung {
+            display: flex; align-items: center; height: 100px; margin-bottom: 10px;
+            position: relative;
+        }
+        .rung::before { content: attr(data-id); position: absolute; left: -30px; font-weight: bold; color: #666; }
+        
+        /* Wires and Components */
+        .wire { height: 2px; background: var(--wire-off); flex-grow: 1; transition: background 0.2s; }
+        .wire.energized { background: var(--wire-on); box-shadow: 0 0 5px var(--wire-on); }
+
+        .component {
+            width: 80px; height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            margin: 0 5px; position: relative;
+        }
+        /* SVG Icons for Logic Symbols */
+        svg { width: 100%; height: 100%; stroke: var(--wire-off); stroke-width: 3; fill: none; transition: stroke 0.2s; }
+        .energized svg { stroke: var(--wire-on); }
+        .label { font-size: 10px; margin-top: -15px; text-align: center; font-weight: bold; color: #333; background: #fff; padding: 0 2px;}
+        .sub-label { font-size: 9px; color: #666; position: absolute; bottom: -5px; }
+
+        /* Coil/Lamp Colors */
+        .coil-circle { fill: none; }
+        .energized .coil-circle { fill: #dfffd6; }
+        .indicator { width: 15px; height: 15px; border-radius: 50%; border: 1px solid #666; margin-top: 5px; background: #eee;}
+        .indicator.on { background: #ff3333; box-shadow: 0 0 8px #ff0000; border-color: #b30000; }
+        .indicator.audio { background: #333; }
+        .indicator.audio.on { background: #ffa500; box-shadow: 0 0 8px orange; }
+
+        /* Parallel Branching */
+        .branch-container { display: flex; flex-direction: column; justify-content: space-between; height: 100%; margin: 0 10px; position: relative; }
+        .branch-top, .branch-bottom { display: flex; align-items: center; }
+        .v-wire { width: 2px; background: var(--wire-off); position: absolute; left: 0; top: 50%; height: 50%; } /* Vertical wire example logic simplified for CSS */
+        
+        /* Function Blocks (MOVE) */
+        .block {
+            border: 2px solid var(--wire-off); padding: 5px; width: 60px; text-align: center; font-size: 11px;
+            background: #fff; z-index: 2;
+        }
+        .energized .block { border-color: var(--wire-on); }
+
+        .comment { color: green; font-style: italic; font-size: 12px; margin-bottom: 5px; }
+
+    </style>
+</head>
+<body>
+
+    <h2>Single-Channel Alarm Annunciator Simulation</h2>
+    
+    <div class="dashboard">
+        <div class="control-group">
+            <h4>Inputs</h4>
+            <button id="btnAlarm" onclick="toggleAlarm()">Alarm Input (Push)</button>
+            <button id="btnAck" onmousedown="setAck(true)" onmouseup="setAck(false)" onmouseleave="setAck(false)">Ack Button (Momentary)</button>
+        </div>
+        <div class="control-group">
+            <h4>Configuration</h4>
+            <button id="btnConfig" onclick="toggleConfig()">Type: Active High</button>
+        </div>
+        <div class="control-group">
+            <h4>System State</h4>
+            <div id="stateDisplay" class="status-display">State: S0 (Normal)</div>
+            <div style="font-size: 0.8em; color: #666;">Clock (1Hz): <span id="clockIndicator">OFF</span></div>
+        </div>
+        <div class="control-group">
+            <h4>Physical Outputs</h4>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <div class="indicator" id="lampPhys"></div> <span>Lamp</span>
+                <div class="indicator audio" id="audioPhys"></div> <span>Hooter</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="ladder-container">
+        <div class="power-rail rail-left"></div>
+        <div class="power-rail rail-right"></div>
+
+        <div class="comment">// Rung 1: Normalize Alarm Signal based on Configuration </div>
+        <div class="rung" data-id="001">
+            <div class="wire w-start"></div>
+            
+            <div style="display:flex; flex-direction: column; gap: 10px;">
+                <div style="display:flex; align-items: center;">
+                    <div class="component contact no" id="c_alarm_1">
+                        <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20"/></svg>
+                        <div class="label">Alarm_In</div>
+                    </div>
+                    <div class="wire w-mid"></div>
+                    <div class="component contact nc" id="c_config_1">
+                        <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20 M12,32 L38,8"/></svg>
+                        <div class="label">Config</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items: center;">
+                    <div class="component contact nc" id="c_alarm_2">
+                        <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20 M12,32 L38,8"/></svg>
+                        <div class="label">Alarm_In</div>
+                    </div>
+                    <div class="wire w-mid"></div>
+                    <div class="component contact no" id="c_config_2">
+                        <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20"/></svg>
+                        <div class="label">Config</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="wire w-end"></div>
+            <div class="component coil" id="coil_alarm_active">
+                <svg viewBox="0 0 50 40"><path d="M0,20 L10,20 M40,20 L50,20" /><circle cx="25" cy="20" r="12" class="coil-circle"/><path d="M18,15 L22,25 L28,15 L32,25" style="stroke-width:1"/></svg>
+                <div class="label">bAlarmCond</div>
+            </div>
+        </div>
+
+        <div class="comment">// Rung 2: Transition S0 (Normal) -> S1 (Active) </div>
+        <div class="rung" data-id="002">
+            <div class="wire w-start"></div>
+            <div class="component block" id="blk_s0">
+                EQ<br>State=0
+            </div>
+            <div class="wire"></div>
+            <div class="component contact no" id="c_s0_trans">
+                <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20"/></svg>
+                <div class="label">bAlarmCond</div>
+            </div>
+            <div class="wire w-end"></div>
+            <div class="component block" id="coil_s1_set">
+                MOVE<br>1 -> State
+            </div>
+        </div>
+
+        <div class="comment">// Rung 3: Transition S1 (Active) -> S2 (Ack) </div>
+        <div class="rung" data-id="003">
+            <div class="wire w-start"></div>
+            <div class="component block" id="blk_s1">
+                EQ<br>State=1
+            </div>
+            <div class="wire"></div>
+            <div class="component contact no" id="c_ack">
+                <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20"/></svg>
+                <div class="label">bAck</div>
+            </div>
+            <div class="wire w-end"></div>
+            <div class="component block" id="coil_s2_set">
+                MOVE<br>2 -> State
+            </div>
+        </div>
+
+        <div class="comment">// Rung 4: Transition S2 (Ack) -> S0 (Normal) </div>
+        <div class="rung" data-id="004">
+            <div class="wire w-start"></div>
+            <div class="component block" id="blk_s2">
+                EQ<br>State=2
+            </div>
+            <div class="wire"></div>
+            <div class="component contact nc" id="c_s2_trans">
+                <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20 M12,32 L38,8"/></svg>
+                <div class="label">bAlarmCond</div>
+            </div>
+            <div class="wire w-end"></div>
+            <div class="component block" id="coil_s0_set">
+                MOVE<br>0 -> State
+            </div>
+        </div>
+
+        <div class="comment">// Rung 5: Audible Alarm (ON in State 1) </div>
+        <div class="rung" data-id="005">
+            <div class="wire w-start"></div>
+            <div class="component block" id="blk_audio_logic">
+                EQ<br>State=1
+            </div>
+            <div class="wire w-end"></div>
+            <div class="component coil" id="coil_audio">
+                 <svg viewBox="0 0 50 40"><path d="M0,20 L10,20 M40,20 L50,20" /><circle cx="25" cy="20" r="12" class="coil-circle"/><text x="20" y="24" font-size="12">(( ))</text></svg>
+                <div class="label">Audio_Out</div>
+            </div>
+        </div>
+
+        <div class="comment">// Rung 6: Lamp (Flash in S1, Steady in S2) [cite: 41]</div>
+        <div class="rung" data-id="006">
+            <div class="wire w-start"></div>
+            
+            <div style="display:flex; flex-direction: column; gap: 10px;">
+                <div style="display:flex; align-items: center;">
+                    <div class="component block" id="blk_lamp_s1">EQ<br>S=1</div>
+                    <div class="wire w-mid"></div>
+                    <div class="component contact no" id="c_clock">
+                        <svg viewBox="0 0 50 40"><path d="M0,20 L15,20 M15,10 L15,30 M35,10 L35,30 M35,20 L50,20"/></svg>
+                        <div class="label">Clock_1Hz</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items: center;">
+                    <div class="component block" id="blk_lamp_s2">EQ<br>S=2</div>
+                    <div class="wire" style="width: 85px;"></div> </div>
+            </div>
+
+            <div class="wire w-end"></div>
+            <div class="component coil" id="coil_lamp">
+                <svg viewBox="0 0 50 40"><path d="M0,20 L10,20 M40,20 L50,20" /><circle cx="25" cy="20" r="12" class="coil-circle"/><text x="18" y="24" font-size="10">LAMP</text></svg>
+                <div class="label">Lamp_Out</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // System State
+        let inputs = {
+            alarm: false,
+            ack: false,
+            config: false // false = Active High, true = Active Low
+        };
+        let state = 0; // 0, 1, 2
+        let clock = false; // 1Hz simulation
+
+        // Simulation Loop (runs every 100ms)
+        setInterval(() => {
+            logicScan();
+            updateUI();
+        }, 100);
+
+        // Clock Loop (runs every 500ms -> 1Hz)
+        setInterval(() => {
+            clock = !clock;
+            document.getElementById('clockIndicator').innerText = clock ? "ON" : "OFF";
+            document.getElementById('clockIndicator').style.color = clock ? "green" : "#666";
+        }, 500);
+
+        // --- Controller Functions ---
+        function toggleAlarm() {
+            inputs.alarm = !inputs.alarm;
+            updateBtn('btnAlarm', inputs.alarm);
+        }
+        function setAck(val) {
+            inputs.ack = val;
+            updateBtn('btnAck', inputs.ack);
+        }
+        function toggleConfig() {
+            inputs.config = !inputs.config;
+            const btn = document.getElementById('btnConfig');
+            btn.innerText = inputs.config ? "Type: Active Low" : "Type: Active High";
+            // Visual style update
+            btn.style.background = inputs.config ? "#ffe0b2" : "#e0e0e0";
+        }
+        function updateBtn(id, active) {
+            const btn = document.getElementById(id);
+            if(active) btn.classList.add('active'); else btn.classList.remove('active');
+        }
+
+        // --- PLC Logic Scan (Imitating Cycle) ---
+        function logicScan() {
+            // Rung 1: Normalize
+            // Active High: Alarm=1 -> Active. Active Low: Alarm=0 -> Active.
+            // Logic: (Alarm AND !Config) OR (!Alarm AND Config)
+            let alarmActive = (inputs.alarm && !inputs.config) || (!inputs.alarm && inputs.config);
+
+            // Rung 2: S0 -> S1
+            if (state === 0 && alarmActive) {
+                state = 1;
+            }
+
+            // Rung 3: S1 -> S2
+            // Note: In real PLC, transition priorities matter. Here we use sequential IFs.
+            else if (state === 1 && inputs.ack) {
+                state = 2;
+            }
+
+            // Rung 4: S2 -> S0
+            else if (state === 2 && !alarmActive) {
+                state = 0;
+            }
+
+            // Outputs
+            // Audio: State 1
+            let audioOut = (state === 1);
+            
+            // Lamp: (State 1 AND Clock) OR (State 2)
+            let lampOut = (state === 1 && clock) || (state === 2);
+
+            // Store Computed values for UI rendering
+            window.computed = {
+                alarmActive, audioOut, lampOut
+            };
+        }
+
+        // --- UI Rendering ---
+        function updateUI() {
+            const c = window.computed;
+            
+            // Text Status
+            const stateLabels = ["S0 (Normal)", "S1 (Active - Unack)", "S2 (Active - Ack)"];
+            document.getElementById('stateDisplay').innerText = "State: " + stateLabels[state];
+            
+            // Physical Indicators
+            const l = document.getElementById('lampPhys');
+            if(c.lampOut) l.classList.add('on'); else l.classList.remove('on');
+            
+            const a = document.getElementById('audioPhys');
+            if(c.audioOut) a.classList.add('on'); else a.classList.remove('on');
+
+            // --- Ladder Visuals (Energizing Wires) ---
+            
+            // Helper to energize by ID
+            const setE = (id, active) => {
+                const el = document.getElementById(id);
+                if(el) {
+                    if(active) el.classList.add('energized'); else el.classList.remove('energized');
+                }
+            };
+
+            // Rung 1 Visuals
+            // Top branch: Alarm AND !Config
+            let topBranch = inputs.alarm && !inputs.config;
+            setE('c_alarm_1', inputs.alarm); 
+            setE('c_config_1', !inputs.config); 
+            
+            // Bottom branch: !Alarm AND Config
+            let botBranch = !inputs.alarm && inputs.config;
+            setE('c_alarm_2', !inputs.alarm);
+            setE('c_config_2', inputs.config);
+
+            setE('coil_alarm_active', topBranch || botBranch);
+
+            // Rung 2 Visuals (S0 -> S1)
+            let r2_cond = (state === 0) && c.alarmActive; // visualizing flow
+            setE('blk_s0', state === 0);
+            setE('c_s0_trans', c.alarmActive);
+            setE('coil_s1_set', r2_cond);
+
+            // Rung 3 Visuals (S1 -> S2)
+            let r3_cond = (state === 1) && inputs.ack;
+            setE('blk_s1', state === 1);
+            setE('c_ack', inputs.ack);
+            setE('coil_s2_set', r3_cond);
+
+            // Rung 4 Visuals (S2 -> S0)
+            let r4_cond = (state === 2) && !c.alarmActive;
+            setE('blk_s2', state === 2);
+            setE('c_s2_trans', !c.alarmActive);
+            setE('coil_s0_set', r4_cond);
+
+            // Rung 5 Visuals (Audio)
+            setE('blk_audio_logic', state === 1);
+            setE('coil_audio', state === 1);
+
+            // Rung 6 Visuals (Lamp)
+            let r6_top = (state === 1 && clock);
+            let r6_bot = (state === 2);
+            setE('blk_lamp_s1', state === 1);
+            setE('c_clock', clock);
+            setE('blk_lamp_s2', state === 2);
+            setE('coil_lamp', r6_top || r6_bot);
+        }
+    </script>
+</body>
+</html>

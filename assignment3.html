@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TMR Ladder Logic Simulator</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --rail-color: #555;
+            --off-color: #666;
+            --on-color: #00ff00;
+            --text-color: #ddd;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Controls Section */
+        .controls {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border: 1px solid #555;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            text-align: center;
+        }
+        
+        input[type=range] { width: 100%; cursor: pointer; }
+        .val-display { color: var(--on-color); font-weight: bold; font-size: 1.2em; }
+
+        /* The Ladder Diagram Container */
+        .ladder-container {
+            position: relative;
+            width: 800px;
+            border-left: 5px solid var(--on-color); /* Left Power Rail (Always Hot) */
+            border-right: 5px solid var(--rail-color); /* Right Neutral Rail */
+            padding: 10px 0;
+            background: #252526;
+        }
+
+        /* Individual Rung */
+        .rung {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 80px;
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        /* Horizontal Wires */
+        .wire {
+            height: 2px;
+            background-color: var(--off-color);
+            flex-grow: 1;
+            transition: background-color 0.2s;
+        }
+        .wire.hot { background-color: var(--on-color); box-shadow: 0 0 5px var(--on-color); }
+
+        /* Logic Blocks (Comparators) */
+        .block {
+            border: 2px solid var(--off-color);
+            color: var(--off-color);
+            padding: 5px 10px;
+            margin: 0 5px;
+            font-size: 0.8em;
+            text-align: center;
+            background: #1e1e1e;
+            width: 140px;
+            user-select: none;
+            transition: all 0.2s;
+        }
+        .block.hot {
+            border-color: var(--on-color);
+            color: var(--on-color);
+            box-shadow: inset 0 0 5px rgba(0,255,0,0.2);
+        }
+
+        /* Coils (Outputs) */
+        .coil {
+            width: 60px;
+            height: 60px;
+            border: 3px solid var(--off-color);
+            border-radius: 50%; /* Circular Coil */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            color: var(--off-color);
+            font-weight: bold;
+            background: #1e1e1e;
+            transition: all 0.2s;
+            position: relative;
+        }
+        /* Square brackets for Move/Math blocks */
+        .coil.rect {
+            border-radius: 5px;
+            width: 100px;
+        }
+
+        .coil.hot {
+            border-color: var(--on-color);
+            color: var(--on-color);
+            box-shadow: 0 0 10px rgba(0,255,0,0.5);
+        }
+
+        /* Rung Labels */
+        .rung-num {
+            position: absolute;
+            left: -40px;
+            color: #888;
+        }
+        .comment {
+            position: absolute;
+            top: -10px;
+            left: 10px;
+            font-size: 0.7em;
+            color: #aaa;
+            background: #252526;
+            padding: 0 5px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>TMR Logic Monitor</h1>
+    <p style="color:#aaa">Adjust sensors to see Ladder Logic execution.</p>
+
+    <div class="controls">
+        <div>
+            <label>Sensor A</label><br>
+            <input type="range" id="inA" min="0" max="100" value="50" oninput="updateLogic()">
+            <div class="val-display" id="dispA">50</div>
+        </div>
+        <div>
+            <label>Sensor B</label><br>
+            <input type="range" id="inB" min="0" max="100" value="51" oninput="updateLogic()">
+            <div class="val-display" id="dispB">51</div>
+        </div>
+        <div>
+            <label>Sensor C</label><br>
+            <input type="range" id="inC" min="0" max="100" value="90" oninput="updateLogic()">
+            <div class="val-display" id="dispC">90</div>
+        </div>
+    </div>
+
+    <div class="ladder-container">
+
+        <div class="rung">
+            <span class="rung-num">000</span>
+            <div class="comment">If A is Middle Value -> Select A</div>
+            <div class="wire hot"></div> <div class="block" id="blockA">
+                CMP<br>
+                (B < A < C)<br>
+                OR (C < A < B)
+            </div>
+            
+            <div class="wire" id="wireA"></div>
+            
+            <div class="coil rect" id="coilA">
+                MOV A<br>to MED
+            </div>
+            <div class="wire"></div>
+        </div>
+
+        <div class="rung">
+            <span class="rung-num">001</span>
+            <div class="comment">If B is Middle Value -> Select B</div>
+            <div class="wire hot"></div>
+            
+            <div class="block" id="blockB">
+                CMP<br>
+                (A < B < C)<br>
+                OR (C < B < A)
+            </div>
+            
+            <div class="wire" id="wireB"></div>
+            
+            <div class="coil rect" id="coilB">
+                MOV B<br>to MED
+            </div>
+            <div class="wire"></div>
+        </div>
+
+        <div class="rung">
+            <span class="rung-num">002</span>
+            <div class="comment">If Not A and Not B -> Select C</div>
+            <div class="wire hot"></div>
+            
+            <div class="block" id="ncA">
+                NOT<br>Rung 0
+            </div>
+            <div class="wire" id="wireC1"></div>
+
+            <div class="block" id="ncB">
+                NOT<br>Rung 1
+            </div>
+            <div class="wire" id="wireC2"></div>
+
+            <div class="coil rect" id="coilC">
+                MOV C<br>to MED
+            </div>
+            <div class="wire"></div>
+        </div>
+
+        <hr style="border-color: #444; margin: 20px 0;">
+
+        <div class="rung">
+            <span class="rung-num">003</span>
+            <div class="comment">Fault Detection A (|A - Med| > 5)</div>
+            <div class="wire hot"></div>
+            
+            <div class="block" id="calcA">
+                ABS(A-Med)<br>> 5.0
+            </div>
+            
+            <div class="wire" id="wireFaultA"></div>
+            
+            <div class="coil" id="alarmA">ALM A</div>
+            <div class="wire"></div>
+        </div>
+
+        <div class="rung">
+            <span class="rung-num">004</span>
+            <div class="comment">Fault Detection B (|B - Med| > 5)</div>
+            <div class="wire hot"></div>
+            
+            <div class="block" id="calcB">
+                ABS(B-Med)<br>> 5.0
+            </div>
+            
+            <div class="wire" id="wireFaultB"></div>
+            
+            <div class="coil" id="alarmB">ALM B</div>
+            <div class="wire"></div>
+        </div>
+
+         <div class="rung">
+            <span class="rung-num">005</span>
+            <div class="comment">Fault Detection C (|C - Med| > 5)</div>
+            <div class="wire hot"></div>
+            
+            <div class="block" id="calcC">
+                ABS(C-Med)<br>> 5.0
+            </div>
+            
+            <div class="wire" id="wireFaultC"></div>
+            
+            <div class="coil" id="alarmC">ALM C</div>
+            <div class="wire"></div>
+        </div>
+
+    </div>
+
+    <script>
+        function updateLogic() {
+            // 1. Get Values
+            let a = parseInt(document.getElementById('inA').value);
+            let b = parseInt(document.getElementById('inB').value);
+            let c = parseInt(document.getElementById('inC').value);
+            
+            document.getElementById('dispA').innerText = a;
+            document.getElementById('dispB').innerText = b;
+            document.getElementById('dispC').innerText = c;
+
+            // 2. Determine Median Logic
+            let isAMed = (a >= b && a <= c) || (a <= b && a >= c);
+            let isBMed = (b >= a && b <= c) || (b <= a && b >= c);
+            // In strict math, if A=B=C, both might be true, but logic usually prioritizes top down. 
+            // For this visual, we allow strict overlap.
+            
+            let isCMed = !isAMed && !isBMed;
+
+            // Determine actual median value for Fault Calc
+            let medianVal = 0;
+            if(isAMed) medianVal = a;
+            else if(isBMed) medianVal = b;
+            else medianVal = c;
+
+            // 3. Update Ladder Visuals (Energize/De-energize)
+
+            // --- RUNG 0 (A) ---
+            setHot('blockA', isAMed);
+            setHot('wireA', isAMed);
+            setHot('coilA', isAMed);
+
+            // --- RUNG 1 (B) ---
+            setHot('blockB', isBMed);
+            setHot('wireB', isBMed);
+            setHot('coilB', isBMed);
+
+            // --- RUNG 2 (C) ---
+            // If Rung 0 is FALSE, the NOT contact is closed (Hot)
+            setHot('ncA', !isAMed); 
+            setHot('wireC1', !isAMed);
+            
+            // If Rung 0 is FALSE AND Rung 1 is FALSE
+            let flowReachB = !isAMed; // Power reached block B?
+            let flowPassB = flowReachB && !isBMed; // Power passed block B?
+
+            setHot('ncB', !isBMed && flowReachB); // Only light up if power reached it
+            setHot('wireC2', flowPassB);
+            setHot('coilC', flowPassB);
+
+
+            // --- FAULT RUNGS ---
+            let tol = 5;
+            let faultA = Math.abs(a - medianVal) > tol;
+            let faultB = Math.abs(b - medianVal) > tol;
+            let faultC = Math.abs(c - medianVal) > tol;
+
+            setHot('calcA', faultA);
+            setHot('wireFaultA', faultA);
+            setHot('alarmA', faultA);
+
+            setHot('calcB', faultB);
+            setHot('wireFaultB', faultB);
+            setHot('alarmB', faultB);
+
+            setHot('calcC', faultC);
+            setHot('wireFaultC', faultC);
+            setHot('alarmC', faultC);
+        }
+
+        // Helper to toggle class
+        function setHot(id, isHot) {
+            const el = document.getElementById(id);
+            if(isHot) {
+                el.classList.add('hot');
+            } else {
+                el.classList.remove('hot');
+            }
+        }
+
+        // Init
+        updateLogic();
+    </script>
+</body>
+</html>
